@@ -5,7 +5,6 @@
 #include "atom/browser/api/atom_api_desktop_capturer.h"
 
 #include "atom/common/api/atom_api_native_image.h"
-#include "atom/common/native_mate_converters/callback.h"
 #include "atom/common/node_includes.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/media/desktop_media_list.h"
@@ -38,15 +37,33 @@ namespace atom {
 namespace api {
 
 namespace {
-// The wrapDesktopCapturer funtion which is implemented in JavaScript
-using WrapDesktopCapturerCallback = base::Callback<void(v8::Local<v8::Value>)>;
-WrapDesktopCapturerCallback g_wrap_desktop_capturer;
-
 const int kThumbnailWidth = 150;
 const int kThumbnailHeight = 150;
 }  // namespace
 
-DesktopCapturer::DesktopCapturer(bool show_screens, bool show_windows) {
+DesktopCapturer::DesktopCapturer() {
+}
+
+DesktopCapturer::~DesktopCapturer() {
+}
+
+const DesktopMediaList::Source& DesktopCapturer::GetSource(int index) {
+  return media_list_->GetSource(index);
+}
+
+void DesktopCapturer::StartUpdating(const std::vector<std::string>& sources) {
+  bool show_screens = false;
+  bool show_windows = false;
+  for (const auto& source_type : sources) {
+    if (source_type == "screen")
+      show_screens = true;
+    else if (source_type == "window")
+      show_windows = true;
+  }
+
+  if (!show_windows && !show_screens)
+    return;
+
   webrtc::DesktopCaptureOptions options =
       webrtc::DesktopCaptureOptions::CreateDefault();
 
@@ -70,11 +87,8 @@ DesktopCapturer::DesktopCapturer(bool show_screens, bool show_windows) {
   media_list_->StartUpdating(this);
 }
 
-DesktopCapturer::~DesktopCapturer() {
-}
-
-const DesktopMediaList::Source& DesktopCapturer::GetSource(int index) {
-  return media_list_->GetSource(index);
+void DesktopCapturer::StopUpdating() {
+  media_list_.reset();
 }
 
 void DesktopCapturer::OnSourceAdded(int index) {
@@ -100,24 +114,14 @@ void DesktopCapturer::OnSourceThumbnailChanged(int index) {
 mate::ObjectTemplateBuilder DesktopCapturer::GetObjectTemplateBuilder(
       v8::Isolate* isolate) {
   return mate::ObjectTemplateBuilder(isolate)
-      .SetMethod("getSource", &DesktopCapturer::GetSource);
-}
-
-void SetWrapDesktopCapturer(const WrapDesktopCapturerCallback& callback) {
-  g_wrap_desktop_capturer = callback;
-}
-
-void ClearWrapDesktopCapturer() {
-  g_wrap_desktop_capturer.Reset();
+      .SetMethod("getSource", &DesktopCapturer::GetSource)
+      .SetMethod("startUpdating", &DesktopCapturer::StartUpdating)
+      .SetMethod("stopUpdating", &DesktopCapturer::StopUpdating);
 }
 
 // static
-mate::Handle<DesktopCapturer> DesktopCapturer::Create(v8::Isolate* isolate,
-    bool show_screens, bool show_windows) {
-  auto handle = mate::CreateHandle(isolate,
-      new DesktopCapturer(show_screens, show_windows));
-  g_wrap_desktop_capturer.Run(handle.ToV8());
-  return handle;
+mate::Handle<DesktopCapturer> DesktopCapturer::Create(v8::Isolate* isolate) {
+  return mate::CreateHandle(isolate, new DesktopCapturer);
 }
 
 }  // namespace api
@@ -130,9 +134,7 @@ void Initialize(v8::Local<v8::Object> exports, v8::Local<v8::Value> unused,
                 v8::Local<v8::Context> context, void* priv) {
   v8::Isolate* isolate = context->GetIsolate();
   mate::Dictionary dict(isolate, exports);
-  dict.SetMethod("_setWrapDesktopCapturer", &atom::api::SetWrapDesktopCapturer);
-  dict.SetMethod("_clearWrapDesktopCapturer",
-                 &atom::api::ClearWrapDesktopCapturer);
+  dict.Set("desktopCapturer", atom::api::DesktopCapturer::Create(isolate));
 }
 
 }  // namespace
